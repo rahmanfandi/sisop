@@ -6,26 +6,29 @@
 #include <unistd.h>
 #include <string.h>
 
+#define MAX_SOCKETS 10 // Maksimal soket yang ingin dipantau
+
 int main() {
-    int server_fd, client_fd, max_fd;
+    int server_fd, client_fd, max_fd, num_clients = 0;
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_len;
     fd_set readfds;
     struct timeval timeout;
+    int client_fds[MAX_SOCKETS] = {0}; // Menyimpan FD klien
 
-    // Membuat socket
+    // Membuat socket untuk server
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == -1) {
         perror("Socket creation failed");
         return 1;
     }
 
-    // Menyeting alamat server
+    // Menyiapkan alamat untuk server
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(12345);
 
-    // Mengikat socket ke alamat
+    // Mengikat socket ke alamat server
     if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
         close(server_fd);
@@ -44,14 +47,14 @@ int main() {
     FD_SET(server_fd, &readfds);  // Masukkan server_fd ke dalam readfds
     max_fd = server_fd;  // Set fd tertinggi
 
-    // Menetapkan waktu timeout (5 detik)
-    timeout.tv_sec = 5;
-    timeout.tv_usec = 0;
-
     printf("Server is listening on port 12345...\n");
 
     while (1) {
-        // Memanggil select untuk memonitor socket
+        // Menetapkan waktu timeout (5 detik)
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+
+        // Memanggil select untuk memonitor soket
         int activity = select(max_fd + 1, &readfds, NULL, NULL, &timeout);
 
         if (activity == -1) {
@@ -60,11 +63,8 @@ int main() {
             return 1;
         }
 
-        printf("select() activity = %d\n", activity);
-
-        // Memeriksa apakah ada activity dalam readfds
+        // Memeriksa apakah ada koneksi baru pada server_fd
         if (FD_ISSET(server_fd, &readfds)) {
-            // Jika server socket siap untuk menerima koneksi baru
             addr_len = sizeof(client_addr);
             client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
             if (client_fd < 0) {
@@ -73,26 +73,37 @@ int main() {
             }
 
             printf("New connection from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-            FD_SET(client_fd, &readfds);  // Masukkan client socket ke dalam readfds
-            if (client_fd > max_fd) {
-                max_fd = client_fd;  // Update max_fd jika client_fd lebih besar
+
+            // Tambahkan soket klien ke dalam fd_set
+            if (num_clients < MAX_SOCKETS) {
+                client_fds[num_clients++] = client_fd;
+                FD_SET(client_fd, &readfds);
+                if (client_fd > max_fd) {
+                    max_fd = client_fd;  // Update max_fd
+                }
+            } else {
+                printf("Max number of clients reached.\n");
+                close(client_fd);
             }
         }
 
-        // Memeriksa aktivitas pada socket lain
-        for (int i = server_fd + 1; i <= max_fd; i++) {
-            if (FD_ISSET(i, &readfds)) {
+        // Memeriksa apakah ada data pada soket klien yang ada
+        for (int i = 0; i < num_clients; i++) {
+            if (FD_ISSET(client_fds[i], &readfds)) {
                 char buffer[1024];
-                int bytes_read = read(i, buffer, sizeof(buffer));
-                if (bytes_read == 0) {
-                    // Klien menutup koneksi
-                    printf("Closing connection on socket %d\n", i);
-                    close(i);
-                    FD_CLR(i, &readfds);  // Hapus socket dari fd_set
+                int n = recv(client_fds[i], buffer, sizeof(buffer), 0);
+                if (n <= 0) {
+                    if (n == 0) {
+                        printf("Client disconnected: %d\n", client_fds[i]);
+                    } else {
+                        perror("recv failed");
+                    }
+                    close(client_fds[i]);
+                    FD_CLR(client_fds[i], &readfds);  // Hapus dari fd_set
+                    client_fds[i] = client_fds[--num_clients];  // Pindahkan FD terakhir ke posisi kosong
                 } else {
-                    // Data diterima dari klien
-                    buffer[bytes_read] = '\0';  // Menambahkan null-terminator
-                    printf("Received data from socket %d: %s\n", i, buffer);
+                    buffer[n] = '\0';  // Pastikan null-terminated string
+                    printf("Received from client %d: %s\n", client_fds[i], buffer);
                 }
             }
         }
