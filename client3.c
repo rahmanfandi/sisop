@@ -20,9 +20,13 @@ int main() {
     inet_pton(AF_INET, SERVER_ADDR, &server_addr.sin_addr);
 
     connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    send(sock, "Hello", 5, 0);
+    printf("Client connected with file descriptor: %d\n", sock);
+
+    send(sock, "Hello from client", 17, 0);
+    printf("Sent data to server.\n");
+
     recv(sock, buffer, sizeof(buffer), 0);
-    printf("Server: %s\n", buffer);
+    printf("Received from server: %s\n", buffer);
 
     close(sock);
     return 0;

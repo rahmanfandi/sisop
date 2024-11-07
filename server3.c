@@ -26,6 +26,8 @@ int main() {
     FD_ZERO(&read_fds);
     FD_SET(server_fd, &read_fds);
 
+    printf("Server listening on port %d...\n", PORT);
+
     while (1) {
         fd_set temp_fds = read_fds;
         select(server_fd + 1, &temp_fds, NULL, NULL, NULL);
@@ -33,15 +35,18 @@ int main() {
         if (FD_ISSET(server_fd, &temp_fds)) {
             client_fd = accept(server_fd, NULL, NULL);
             FD_SET(client_fd, &read_fds);
+            printf("New client connected with file descriptor: %d\n", client_fd);
         }
 
         for (int i = 0; i <= server_fd; i++) {
             if (FD_ISSET(i, &temp_fds) && i != server_fd) {
                 int bytes_received = recv(i, buffer, sizeof(buffer), 0);
                 if (bytes_received <= 0) {
+                    printf("Closing connection with file descriptor: %d\n", i);
                     close(i);
                     FD_CLR(i, &read_fds);
                 } else {
+                    printf("Received data from file descriptor %d: %s\n", i, buffer);
                     send(i, "Hello", 5, 0);
                 }
             }
